@@ -535,6 +535,8 @@ extern "C" {
         GGML_OP_CROSS_ENTROPY_LOSS,
         GGML_OP_CROSS_ENTROPY_LOSS_BACK,
 
+        GGML_OP_USE_PARAM,
+
         GGML_OP_COUNT,
     };
 
@@ -611,6 +613,8 @@ extern "C" {
         char name[GGML_MAX_NAME];
 
         void * extra; // extra things e.g. for ggml-cuda.cu
+        void * extra2; // extra things e.g. for ggml-cuda.cu
+        void * extra3; // extra things e.g. for ggml-cuda.cu
 
         // char padding[4];
     };
@@ -1018,6 +1022,11 @@ extern "C" {
             struct ggml_tensor  * a,
             struct ggml_tensor  * b,
             int                   dim);
+
+    GGML_API struct ggml_tensor * ggml_use_param(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * self,
+        struct ggml_tensor  * dep);
 
     GGML_API struct ggml_tensor * ggml_abs(
             struct ggml_context * ctx,
@@ -2519,6 +2528,8 @@ extern "C" {
     } ggml_type_traits_t;
 
     GGML_API ggml_type_traits_t ggml_internal_get_type_traits(enum ggml_type type);
+
+    GGML_API void ggml_set_polling_routine(void (*routine)(void));
 
 #ifdef  __cplusplus
 }

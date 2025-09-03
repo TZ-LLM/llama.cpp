@@ -190,6 +190,7 @@ static int cpu_count_math_cpus(int n_cpu) {
  * Returns number of CPUs on system that are useful for math.
  */
 int32_t cpu_get_num_math() {
+    return 1;
 #if defined(__x86_64__) && defined(__linux__) && !defined(__ANDROID__)
     int n_cpu = sysconf(_SC_NPROCESSORS_ONLN);
     if (n_cpu < 1) {
@@ -268,6 +269,7 @@ bool set_process_priority(enum ggml_sched_priority prio) {
 void postprocess_cpu_params(cpu_params& cpuparams, const cpu_params* role_model) {
     int32_t n_set = 0;
 
+    std::cout<<"In function postprocess_cpu_params"<<std::endl;
     if (cpuparams.n_threads < 0) {
         // Assuming everything about cpuparams is invalid
         if (role_model != nullptr) {
@@ -276,12 +278,14 @@ void postprocess_cpu_params(cpu_params& cpuparams, const cpu_params* role_model)
             cpuparams.n_threads = cpu_get_num_math();
         }
     }
+    std::cout<<"After cpuparams.n_threads"<<std::endl;
 
     for (int32_t i = 0; i < GGML_MAX_N_THREADS; i++) {
         if (cpuparams.cpumask[i]) {
             n_set++;
         }
     }
+    std::cout<<"After for loop"<<std::endl;
 
     if (n_set && n_set < cpuparams.n_threads) {
         // Not enough set bits, may experience performance issues.
@@ -374,6 +378,7 @@ void gpt_init() {
 #else
     const char * build_type = " (debug)";
 #endif
+    std::cout << "In function gpt_init" << std::endl;
 
     LOG_INF("build: %d (%s) with %s for %s%s\n", LLAMA_BUILD_NUMBER, LLAMA_COMMIT, LLAMA_COMPILER, LLAMA_BUILD_TARGET, build_type);
 }
@@ -820,16 +825,21 @@ std::string fs_get_cache_file(const std::string & filename) {
 // Model utils
 //
 struct llama_init_result llama_init_from_gpt_params(gpt_params & params) {
+
+    std::cout<<"In function llama_init_from_gpt_params"<<std::endl;
     llama_init_result iparams;
     auto mparams = llama_model_params_from_gpt_params(params);
+    std::cout<<"Before model"<<std::endl;
 
     llama_model * model = nullptr;
-
+    std::cout<<"Before model"<<std::endl;
     if (!params.hf_repo.empty() && !params.hf_file.empty()) {
+        std::cout<<"load model from hf_repo"<<std::endl;
         model = llama_load_model_from_hf(params.hf_repo.c_str(), params.hf_file.c_str(), params.model.c_str(), params.hf_token.c_str(), mparams);
     } else if (!params.model_url.empty()) {
         model = llama_load_model_from_url(params.model_url.c_str(), params.model.c_str(), params.hf_token.c_str(), mparams);
     } else {
+        std::cout<<"load model from file"<<std::endl;
         model = llama_load_model_from_file(params.model.c_str(), mparams);
     }
 
@@ -837,16 +847,16 @@ struct llama_init_result llama_init_from_gpt_params(gpt_params & params) {
         LOG_ERR("%s: failed to load model '%s'\n", __func__, params.model.c_str());
         return iparams;
     }
-
+    // std::cout<<"Before context"<<std::endl;
     auto cparams = llama_context_params_from_gpt_params(params);
-
+    // std::cout<<"Before context"<<std::endl;
     llama_context * lctx = llama_new_context_with_model(model, cparams);
     if (lctx == NULL) {
         LOG_ERR("%s: failed to create context with model '%s'\n", __func__, params.model.c_str());
         llama_free_model(model);
         return iparams;
     }
-
+    // std::cout<<"Before control vectors"<<std::endl;
     if (!params.control_vectors.empty()) {
         if (params.control_vector_layer_start <= 0) params.control_vector_layer_start = 1;
         if (params.control_vector_layer_end   <= 0) params.control_vector_layer_end   = llama_n_layer(model);
@@ -870,7 +880,7 @@ struct llama_init_result llama_init_from_gpt_params(gpt_params & params) {
             return iparams;
         }
     }
-
+    // std::cout<<"Before lora adapters"<<std::endl;
     // load and optionally apply lora adapters
     for (auto & la : params.lora_adapters) {
         llama_lora_adapter_container loaded_la;
@@ -888,12 +898,12 @@ struct llama_init_result llama_init_from_gpt_params(gpt_params & params) {
     if (!params.lora_init_without_apply) {
         llama_lora_adapters_apply(lctx, iparams.lora_adapters);
     }
-
+    // std::cout<<"Before ignore eos"<<std::endl;
     if (params.sparams.ignore_eos && llama_token_eos(model) == -1) {
         LOG_WRN("%s: warning: model does not have an EOS token, ignoring --ignore-eos\n", __func__);
         params.sparams.ignore_eos = false;
     }
-
+    // std::cout<<"Before warmup"<<std::endl;
     if (params.warmup) {
         LOG_WRN("%s: warming up the model with an empty run - please wait ... (--no-warmup to disable)\n", __func__);
 
@@ -910,7 +920,7 @@ struct llama_init_result llama_init_from_gpt_params(gpt_params & params) {
         if (tmp.empty()) {
             tmp.push_back(0);
         }
-
+        // std::cout<<"Before encode"<<std::endl;
         if (llama_model_has_encoder(model)) {
             llama_encode(lctx, llama_batch_get_one(tmp.data(), tmp.size(), 0, 0));
             llama_token decoder_start_token_id = llama_model_decoder_start_token(model);
@@ -923,11 +933,13 @@ struct llama_init_result llama_init_from_gpt_params(gpt_params & params) {
         if (llama_model_has_decoder(model)) {
             llama_decode(lctx, llama_batch_get_one(tmp.data(), std::min(tmp.size(), (size_t) params.n_batch), 0, 0));
         }
+        // std::cout<<"Before synchronize"<<std::endl;
         llama_kv_cache_clear(lctx);
+        // std::cout<<"Before synchronize"<<std::endl;
         llama_synchronize(lctx);
+        // std::cout<<"Before reset"<<std::endl;
         llama_perf_context_reset(lctx);
     }
-
     iparams.model   = model;
     iparams.context = lctx;
     return iparams;

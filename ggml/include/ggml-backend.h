@@ -34,6 +34,7 @@ extern "C" {
 
     GGML_API           const char *                   ggml_backend_buffer_name          (ggml_backend_buffer_t buffer);
     GGML_API           void                           ggml_backend_buffer_free          (ggml_backend_buffer_t buffer);
+    GGML_API           void                           ggml_backend_buffer_free_buffer   (ggml_backend_buffer_t buffer);
     GGML_API           void *                         ggml_backend_buffer_get_base      (ggml_backend_buffer_t buffer);
     GGML_API           size_t                         ggml_backend_buffer_get_size      (ggml_backend_buffer_t buffer);
     GGML_API GGML_CALL void                           ggml_backend_buffer_init_tensor   (ggml_backend_buffer_t buffer, struct ggml_tensor * tensor);

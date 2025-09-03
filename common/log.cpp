@@ -380,7 +380,11 @@ void gpt_log_free(struct gpt_log * log) {
 void gpt_log_add(struct gpt_log * log, enum ggml_log_level level, const char * fmt, ...) {
     va_list args;
     va_start(args, fmt);
+#ifdef LLAMA_USE_CHCORE_API
+    vprintf(fmt, args);
+#else
     log->add(level, fmt, args);
+#endif
     va_end(args);
 }
 

@@ -75,6 +75,23 @@ const char * ggml_backend_buffer_name(ggml_backend_buffer_t buffer) {
     return buffer->iface.get_name(buffer);
 }
 
+static void ggml_backend_multi_buffer_free_buffer_light(ggml_backend_buffer_t buffer);
+
+void ggml_backend_buffer_free_buffer(ggml_backend_buffer_t buffer) {
+    if (buffer == NULL) {
+        return;
+    }
+
+    if (ggml_backend_buffer_is_multi_buffer(buffer)) {
+        ggml_backend_multi_buffer_free_buffer_light(buffer);
+    } else {
+        if (buffer->iface.free_buffer != NULL) {
+            buffer->iface.free_buffer(buffer);
+        }
+    }
+
+}
+
 void ggml_backend_buffer_free(ggml_backend_buffer_t buffer) {
     if (buffer == NULL) {
         return;
@@ -449,6 +466,12 @@ GGML_CALL static void ggml_backend_registry_init(void) {
     extern GGML_CALL int ggml_backend_cann_reg_devices(void);
     ggml_backend_cann_reg_devices();
 #endif
+
+#ifdef GGML_USE_RKNPU2
+    extern GGML_CALL int ggml_backend_rknpu2_reg_devices(void);
+    ggml_backend_rknpu2_reg_devices();
+#endif
+
 }
 
 GGML_CALL void ggml_backend_register(const char * name, ggml_backend_init_fn init_fn, ggml_backend_buffer_type_t default_buffer_type, void * user_data) {
@@ -566,7 +589,10 @@ GGML_CALL static void * ggml_backend_cpu_buffer_get_base(ggml_backend_buffer_t b
 }
 
 GGML_CALL static void ggml_backend_cpu_buffer_free_buffer(ggml_backend_buffer_t buffer) {
-    free(buffer->context);
+    if (buffer->context) {
+        free(buffer->context);
+        buffer->context = NULL;
+    }
 }
 
 GGML_CALL static void ggml_backend_cpu_buffer_set_tensor(ggml_backend_buffer_t buffer, struct ggml_tensor * tensor, const void * data, size_t offset, size_t size) {
@@ -634,6 +660,9 @@ GGML_CALL static ggml_backend_buffer_t ggml_backend_cpu_buffer_type_alloc_buffer
         return NULL;
     }
 
+#ifndef NDEBUG
+    printf("zzh: ggml_backend_cpu_buffer_type_alloc_buffer called\n");
+#endif
     return ggml_backend_buffer_init(buft, cpu_backend_buffer_i, data, size);
 }
 
@@ -950,6 +979,13 @@ struct ggml_backend_multi_buffer_context {
 };
 
 typedef struct ggml_backend_multi_buffer_context * ggml_backend_multi_buffer_context_t;
+
+void ggml_backend_multi_buffer_free_buffer_light(ggml_backend_buffer_t buffer) {
+    ggml_backend_multi_buffer_context_t ctx = (ggml_backend_multi_buffer_context_t) buffer->context;
+    for (size_t i = 0; i < ctx->n_buffers; i++) {
+        ggml_backend_buffer_free_buffer(ctx->buffers[i]);
+    }
+}
 
 GGML_CALL static const char * ggml_backend_multi_buffer_get_name(ggml_backend_buffer_t buffer) {
     ggml_backend_multi_buffer_context_t ctx = (ggml_backend_multi_buffer_context_t) buffer->context;

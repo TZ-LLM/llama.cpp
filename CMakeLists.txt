@@ -70,6 +70,12 @@ option(LLAMA_BUILD_SERVER   "llama: build server example" ${LLAMA_STANDALONE})
 # 3rd party libs
 option(LLAMA_CURL "llama: use libcurl to download model from an URL" OFF)
 
+option(LLAMA_CHCORE_API "llama: use ChCore API" ON)
+
+if (LLAMA_CHCORE_API)
+    add_compile_definitions(LLAMA_USE_CHCORE_API)
+endif()
+
 # Required for relocatable CMake package
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/build-info.cmake)
 
@@ -204,4 +210,5 @@ endif ()
 if (LLAMA_BUILD_EXAMPLES)
     add_subdirectory(examples)
     add_subdirectory(pocs)
+    add_subdirectory(infer_calling_test)
 endif()

@@ -568,8 +568,26 @@ int64_t ggml_time_us(void) {
     QueryPerformanceCounter(&t);
     return ((t.QuadPart-timer_start) * 1000000) / timer_freq;
 }
+#elif defined(__aarch64__)
+static unsigned long cntp_freq;
+void ggml_time_init(void) {
+    asm volatile ("mrs %0, cntfrq_el0":"=r" (cntp_freq));
+}
+int64_t ggml_time_ms(void) {
+    int64_t time_us;
+    asm volatile ("mrs %0, cntvct_el0":"=r" (time_us));
+    return time_us * 1000 / cntp_freq;
+}
+
+int64_t ggml_time_us(void) {
+    int64_t time_us;
+    asm volatile ("mrs %0, cntvct_el0":"=r" (time_us));
+    return time_us * 1000 * 1000 / cntp_freq;
+}
 #else
-void ggml_time_init(void) {}
+void ggml_time_init(void) {
+    printf("zzh: use slow path for ggml time\n");
+}
 int64_t ggml_time_ms(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -2997,9 +3015,10 @@ static const char * GGML_OP_NAME[GGML_OP_COUNT] = {
 
     "CROSS_ENTROPY_LOSS",
     "CROSS_ENTROPY_LOSS_BACK",
+    "USE_PARAM",
 };
 
-static_assert(GGML_OP_COUNT == 79, "GGML_OP_COUNT != 79");
+static_assert(GGML_OP_COUNT == 80, "GGML_OP_COUNT != 80");
 
 static const char * GGML_OP_SYMBOL[GGML_OP_COUNT] = {
     "none",
@@ -3092,7 +3111,7 @@ static const char * GGML_OP_SYMBOL[GGML_OP_COUNT] = {
     "cross_entropy_loss_back(x,y)",
 };
 
-static_assert(GGML_OP_COUNT == 79, "GGML_OP_COUNT != 79");
+static_assert(GGML_OP_COUNT == 80, "GGML_OP_COUNT != 80");
 
 static_assert(GGML_OP_POOL_COUNT == 2, "GGML_OP_POOL_COUNT != 2");
 
@@ -3120,18 +3139,34 @@ static_assert(GGML_UNARY_OP_COUNT == 14, "GGML_UNARY_OP_COUNT != 14");
 static_assert(sizeof(struct ggml_object)%GGML_MEM_ALIGN == 0, "ggml_object size must be a multiple of GGML_MEM_ALIGN");
 static_assert(sizeof(struct ggml_tensor)%GGML_MEM_ALIGN == 0, "ggml_tensor size must be a multiple of GGML_MEM_ALIGN");
 
+static void (*polling_routine)(void);
+void ggml_set_polling_routine(void (*routine)(void)) {
+    polling_routine = routine;
+}
+
 // Helpers for polling loops
 #if defined(__aarch64__) && ( defined(__clang__) || defined(__GNUC__) )
-static inline void ggml_thread_cpu_relax(void) {
+static inline void raw_ggml_thread_cpu_relax(void) {
     __asm__ volatile("yield" ::: "memory");
 }
 #elif defined(__x86_64__)
-static inline void ggml_thread_cpu_relax(void) {
+static inline void raw_ggml_thread_cpu_relax(void) {
     _mm_pause();
 }
 #else
-static inline void ggml_thread_cpu_relax(void) {;}
+static inline void raw_ggml_thread_cpu_relax(void) {;}
 #endif
+
+static inline void ggml_thread_cpu_relax(void) {
+    if (polling_routine) {
+        polling_routine();
+    }
+    raw_ggml_thread_cpu_relax();
+}
+
+void ggml_thread_cpu_relax_out(void) {
+    ggml_thread_cpu_relax();
+}
 
 //
 // NUMA support
@@ -5294,6 +5329,22 @@ struct ggml_tensor * ggml_concat(
     result->grad = is_node ? ggml_dup_tensor(ctx, result) : NULL;
     result->src[0] = a;
     result->src[1] = b;
+
+    return result;
+}
+
+struct ggml_tensor * ggml_use_param(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * self,
+        struct ggml_tensor  * dep) {
+    if (self == NULL) return self;
+
+    struct ggml_tensor * result = ggml_view_tensor(ctx, self);
+
+    result->op   = GGML_OP_USE_PARAM;
+    result->grad = NULL;
+    result->src[0] = self;
+    result->src[1] = dep;
 
     return result;
 }
@@ -11533,6 +11584,19 @@ static void ggml_compute_forward_abs_f32(
     }
 }
 
+static void ggml_compute_forward_use_param(
+        const struct ggml_compute_params * params,
+        struct ggml_tensor * dst) {
+
+    const struct ggml_tensor * src0 = dst->src[0];
+
+    void (*use_param_tensor)(struct ggml_tensor *tensor, int ith) = dst->extra2;
+    use_param_tensor(src0, params->ith);
+
+    dst->extra = src0->extra;
+    dst->data = src0->data;
+}
+
 static void ggml_compute_forward_abs(
         const struct ggml_compute_params * params,
         struct ggml_tensor * dst) {
@@ -12775,10 +12839,20 @@ static void ggml_compute_forward_mul_mat_one_chunk(
     }
 }
 
+extern void rknpu2_matmul_begin_measure(int ith);
+extern void rknpu2_matmul_end_measure(int ith);
+extern void rknpu2_matmul_begin_measure_npu(int ith);
+extern void rknpu2_matmul_end_measure_npu(int ith);
+extern bool ggml_backend_rknpure_supports_op_out(const struct ggml_tensor *op);
+extern void rknpu2_matmul_pre0(struct ggml_tensor * dst, int nth, int ith);
+extern void rknpu2_matmul_pre_scale(struct ggml_tensor * dst, int nth, int ith);
+extern void rknpu2_matmul_pre1(struct ggml_tensor * dst, int nth, int ith);
+extern void rknpu2_matmul_submit(struct ggml_tensor * dst, int nth, int ith);
+extern void rknpu2_matmul_post(struct ggml_tensor * dst, int nth, int ith);
+
 static void ggml_compute_forward_mul_mat(
         const struct ggml_compute_params * params,
               struct ggml_tensor * dst) {
-
     const struct ggml_tensor * src0 = dst->src[0];
     const struct ggml_tensor * src1 = dst->src[1];
 
@@ -12786,6 +12860,25 @@ static void ggml_compute_forward_mul_mat(
 
     const int ith = params->ith;
     const int nth = params->nth;
+
+#ifdef GGML_USE_RKNPURE
+    if (ggml_backend_rknpure_supports_op_out(dst)) {
+        rknpu2_matmul_begin_measure(ith);
+        rknpu2_matmul_pre0(dst, nth, ith);
+        ggml_barrier(params->threadpool);
+        rknpu2_matmul_pre_scale(dst, nth, ith);
+        ggml_barrier(params->threadpool);
+        rknpu2_matmul_pre1(dst, nth, ith);
+        rknpu2_matmul_begin_measure_npu(ith);
+        ggml_barrier(params->threadpool);
+        rknpu2_matmul_submit(dst, nth, ith);
+        ggml_barrier(params->threadpool);
+        rknpu2_matmul_end_measure_npu(ith);
+        rknpu2_matmul_post(dst, nth, ith);
+        rknpu2_matmul_end_measure(ith);
+        return;
+    }
+#endif
 
     const enum ggml_type type = src0->type;
 
@@ -17461,12 +17554,20 @@ static void ggml_compute_forward_cross_entropy_loss_back(
 
 /////////////////////////////////
 
+#ifdef GGML_USE_CHCORE
+void usys_disable_local_irq(void);
+void usys_enable_local_irq(void);
+#endif
+
 static void ggml_compute_forward(struct ggml_compute_params * params, struct ggml_tensor * tensor) {
     GGML_ASSERT(params);
 
     if (tensor->op == GGML_OP_NONE || ggml_is_empty(tensor)) {
         return;
     }
+#ifdef GGML_USE_CHCORE
+    // usys_disable_local_irq();
+#endif
 
     switch (tensor->op) {
         case GGML_OP_DUP:
@@ -17808,11 +17909,18 @@ static void ggml_compute_forward(struct ggml_compute_params * params, struct ggm
             {
                 // nop
             } break;
+        case GGML_OP_USE_PARAM:
+            {
+                ggml_compute_forward_use_param(params, tensor);
+            } break;
         case GGML_OP_COUNT:
             {
                 GGML_ABORT("fatal error");
             }
     }
+#ifdef GGML_USE_CHCORE
+    // usys_enable_local_irq();
+#endif
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -19465,6 +19573,10 @@ static int ggml_get_n_tasks(struct ggml_tensor * node, int n_threads) {
             {
                 n_tasks = 1;
             } break;
+        case GGML_OP_USE_PARAM:
+            {
+                n_tasks = n_threads;
+            } break;
         case GGML_OP_COUNT:
             {
                 GGML_ABORT("fatal error");
@@ -20173,12 +20285,29 @@ static struct ggml_threadpool * ggml_threadpool_new_impl(
     // Place the main thread last (towards the higher numbered CPU cores).
 
     int32_t cpumask_iter = 0;
+#ifndef GGML_USE_CHCORE
+#if defined(GGML_USE_RKNPU2) || defined(GGML_USE_RKNPURE)
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    CPU_SET(4, &cpuset);
+    GGML_ASSERT(pthread_setaffinity_np(pthread_self(), sizeof(cpuset), &cpuset) == 0);
+    printf("bind to core %d\n", 4);
+#endif
+#endif
 
     for (int j = 1; j < tpp->n_threads; j++) {
         ggml_thread_cpumask_next(tpp->cpumask, workers[j].cpumask, tpp->strict_cpu, &cpumask_iter);
 
         int32_t rc = ggml_thread_create(&workers[j].thrd, NULL, ggml_graph_compute_secondary_thread, &workers[j]);
         GGML_ASSERT(rc == 0);
+#ifndef GGML_USE_CHCORE
+#if defined(GGML_USE_RKNPU2) || defined(GGML_USE_RKNPURE)
+        CPU_ZERO(&cpuset);
+        CPU_SET(j + 4, &cpuset);
+        printf("bind to core %d\n", j + 4);
+        GGML_ASSERT(pthread_setaffinity_np(workers[j].thrd, sizeof(cpuset), &cpuset) == 0);
+#endif
+#endif
     }
 
     ggml_thread_cpumask_next(tpp->cpumask, workers[0].cpumask, tpp->strict_cpu, &cpumask_iter);

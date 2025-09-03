@@ -138,8 +138,12 @@ option(GGML_CUDA_NO_VMM                     "ggml: do not try to use CUDA VMM"  
 option(GGML_CUDA_FA_ALL_QUANTS              "ggml: compile all quants for FlashAttention"     OFF)
 option(GGML_CUDA_GRAPHS                     "ggml: use CUDA graphs (llama.cpp only)"          ${GGML_CUDA_GRAPHS_DEFAULT})
 
+option(GGML_CHCORE                          "ggml: run in ChCore"                             ON)
+
 option(GGML_HIPBLAS                         "ggml: use hipBLAS"                               OFF)
 option(GGML_HIP_UMA                         "ggml: use HIP unified memory architecture"       OFF)
+option(GGML_RKNPU2                         "ggml: use RKNPU2"       OFF)
+option(GGML_RKNPURE                         "ggml: use RKNPURE (mtx512)"       ON)
 option(GGML_VULKAN                          "ggml: use Vulkan"                                OFF)
 option(GGML_VULKAN_CHECK_RESULTS            "ggml: run Vulkan op checks"                      OFF)
 option(GGML_VULKAN_DEBUG                    "ggml: enable Vulkan debug output"                OFF)
@@ -222,6 +226,8 @@ set(GGML_PUBLIC_HEADERS
     include/ggml.h
     include/ggml-kompute.h
     include/ggml-metal.h
+    include/ggml-rknpu2.h
+    include/ggml-rknpu-re.h
     include/ggml-rpc.h
     include/ggml-sycl.h
     include/ggml-vulkan.h)

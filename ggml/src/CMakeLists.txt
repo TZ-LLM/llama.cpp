@@ -906,6 +906,53 @@ if (GGML_CANN)
     endif()
 endif()
 
+if (GGML_CHCORE)
+    add_compile_definitions(GGML_USE_CHCORE)
+endif()
+
+if (GGML_RKNPU2)
+    message(STATUS "Using RKNPU2")
+    add_compile_definitions(GGML_USE_RKNPU2)
+    set(RKNPU2_INCLUDE_DIRS
+        "/home/vectorxj/chcore/opentrustee_llm/rknn-toolkit2-2.3.0/rknpu2/runtime/Linux/librknn_api/include"
+    )
+    set(RKNPU2_INSTALL_DIR
+        "/home/vectorxj/chcore/opentrustee_llm/rknn-toolkit2-2.3.0/rknpu2/runtime/Linux/librknn_api/aarch64"
+    )
+    list(APPEND RKNPU2_LIBRARIES
+        /home/vectorxj/chcore/opentrustee_llm/rknn-toolkit2-2.3.0/rknpu2/runtime/Linux/librknn_api/aarch64/librknnrt.so
+    )
+
+    set(GGML_HEADERS_RKNPU2 "../include/ggml-rknpu2.h")
+    set(GGML_SOURCES_RKNPU2 "ggml-rknpu2.cpp")
+
+    message(STATUS "RKNPU2: RKNPU2_INCLUDE_DIRS =  ${RKNPU2_INCLUDE_DIRS}")
+    message(STATUS "RKNPU2: RKNPU2_LIBRARIES =  ${RKNPU2_LIBRARIES}")
+    list(APPEND GGML_EXTRA_LIBS_PUBLIC ${RKNPU2_LIBRARIES} )
+    list(APPEND GGML_EXTRA_INCLUDES     ${RKNPU2_INCLUDE_DIRS})
+    list(APPEND GGML_EXTRA_LIBDIRS      ${RKNPU2_INSTALL_DIR})
+
+    list(APPEND GGML_CDEF_PUBLIC GGML_USE_RKNPU2)
+
+
+elseif (GGML_RKNPURE)
+    message(STATUS "Using RKNPURE")
+    add_compile_definitions(GGML_USE_RKNPURE)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
+
+    file(GLOB   GGML_HEADERS_RKNPURE "ggml-rknpu-re/*.h")
+    list(APPEND GGML_HEADERS_RKNPURE "../include/ggml-rknpu-re.h")
+    if (NOT GGML_CHCORE)
+        file(GLOB   GGML_SOURCES_RKNPURE "ggml-rknpu-re/*.c")
+    else()
+        file(GLOB   GGML_SOURCES_RKNPURE "ggml-rknpu-re/npu_matmul.c")
+        list(APPEND GGML_SOURCES_RKNPURE "ggml-rknpu-re/matmul_cpu_check.c")
+    endif()
+    list(APPEND GGML_SOURCES_RKNPURE "ggml-rknpu-re.cpp")
+
+    list(APPEND GGML_CDEF_PUBLIC GGML_USE_RKNPURE)
+endif()
+
 function(get_flags CCID CCVER)
     set(C_FLAGS "")
     set(CXX_FLAGS "")
@@ -1065,6 +1112,7 @@ if (NOT MSVC)
     if (GGML_STATIC)
         add_link_options(-static)
         if (MINGW)
+        message("hello")
             add_link_options(-static-libgcc -static-libstdc++)
         endif()
     endif()
@@ -1173,16 +1221,17 @@ elseif (CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64" OR CMAKE_GENERATOR_PLATFORM_LW
             list(APPEND ARCH_FLAGS -march=native)
         endif()
         if (GGML_F16C)
-            list(APPEND ARCH_FLAGS -mf16c)
+            # message("hello workd")
+            # list(APPEND ARCH_FLAGS -mf16c)
         endif()
         if (GGML_FMA)
-            list(APPEND ARCH_FLAGS -mfma)
+            # list(APPEND ARCH_FLAGS -mfma)
         endif()
         if (GGML_AVX)
-            list(APPEND ARCH_FLAGS -mavx)
+            # list(APPEND ARCH_FLAGS -mavx)
         endif()
         if (GGML_AVX2)
-            list(APPEND ARCH_FLAGS -mavx2)
+            # list(APPEND ARCH_FLAGS -mavx2)
         endif()
         if (GGML_AVX512)
             list(APPEND ARCH_FLAGS -mavx512f)
@@ -1323,6 +1372,8 @@ add_library(ggml
             ${GGML_SOURCES_BLAS}      ${GGML_HEADERS_BLAS}
             ${GGML_SOURCES_LLAMAFILE} ${GGML_HEADERS_LLAMAFILE}
             ${GGML_SOURCES_CANN}      ${GGML_HEADERS_CANN}
+            ${GGML_SOURCES_RKNPU2}      ${GGML_HEADERS_RKNPU2}
+            ${GGML_SOURCES_RKNPURE}      ${GGML_HEADERS_RKNPURE}
             ggml-aarch64.c            ggml-aarch64.h
             )
 

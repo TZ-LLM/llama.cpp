@@ -16,6 +16,7 @@
 #include <sycl/sycl.hpp>
 #include <sycl/half_type.hpp>
 #include <oneapi/mkl.hpp>
+#include<iostream>
 #include <map>
 
 #include "ggml.h"
@@ -1126,6 +1127,7 @@ namespace dpct
             {
                 // Reserved address space, no real memory allocation happens here.
 #if defined(__linux__)
+                std::cout<<"mem_mgr: linux"<<std::endl;
                 mapped_address_space =
                     (byte_t *)mmap(nullptr, mapped_region_size, PROT_NONE,
                                    MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
